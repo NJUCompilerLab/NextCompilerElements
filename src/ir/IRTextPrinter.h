@@ -156,12 +156,33 @@ private:
         }
         os_ << ")";
 
-        // Output type
+        // Output types (support multiple)
         if (!op->outputTypes().empty()) {
-            os_ << " : " << formatType(op->outputTypes()[0]);
+            os_ << " : ";
+            if (op->outputTypes().size() == 1) {
+                os_ << formatType(op->outputTypes()[0]);
+            } else {
+                os_ << "(";
+                for (size_t i = 0; i < op->outputTypes().size(); i++) {
+                    if (i > 0) os_ << ", ";
+                    os_ << formatType(op->outputTypes()[i]);
+                }
+                os_ << ")";
+            }
         }
 
         os_ << "\n";
+
+        // Print nested regions if any (for control flow ops)
+        if (op->numRegions() > 0) {
+            for (const auto& region : op->regions()) {
+                indent_++;
+                for (const auto& block : region->blocks()) {
+                    printBlock(block.get(), false);
+                }
+                indent_--;
+            }
+        }
     }
 
     void printTerminator(const Operation* op) {
@@ -170,15 +191,36 @@ private:
         if (op->opType() == "Return") {
             os_ << "return";
             if (!op->inputs().empty()) {
-                os_ << " " << op->inputs()[0]->name();
+                for (size_t i = 0; i < op->inputs().size(); i++) {
+                    os_ << (i == 0 ? " " : ", ") << op->inputs()[i]->name();
+                }
             }
         } else if (op->opType() == "Br") {
             // br @dest(args)
             os_ << "br";
-            // Destination and args would be in attrs
+            if (op->hasAttr("dest")) {
+                os_ << " " << op->getAttr<std::string>("dest");
+            }
+            if (!op->inputs().empty()) {
+                os_ << "(";
+                for (size_t i = 0; i < op->inputs().size(); i++) {
+                    if (i > 0) os_ << ", ";
+                    os_ << op->inputs()[i]->name();
+                }
+                os_ << ")";
+            }
         } else if (op->opType() == "CondBr") {
             // cond_br %cond, @then, @else
             os_ << "cond_br";
+            if (!op->inputs().empty()) {
+                os_ << " " << op->inputs()[0]->name();
+            }
+            if (op->hasAttr("then")) {
+                os_ << ", " << op->getAttr<std::string>("then");
+            }
+            if (op->hasAttr("else")) {
+                os_ << ", " << op->getAttr<std::string>("else");
+            }
         } else {
             os_ << op->opType();
         }
@@ -188,13 +230,16 @@ private:
     std::string formatType(const Type& type) const {
         std::ostringstream ss;
         ss << dtypeToString(type.dtype());
-        ss << "[";
         const auto& dims = type.shape().dims();
-        for (size_t i = 0; i < dims.size(); i++) {
-            if (i > 0) ss << ", ";
-            ss << dims[i];
+        if (!dims.empty()) {
+            ss << "[";
+            for (size_t i = 0; i < dims.size(); i++) {
+                if (i > 0) ss << ", ";
+                ss << dims[i];
+            }
+            ss << "]";
         }
-        ss << "]";
+        // Scalar types print as just "f32" without brackets
         return ss.str();
     }
 
