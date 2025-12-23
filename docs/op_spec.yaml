@@ -1,0 +1,209 @@
+# Op Spec v0.1
+# GPT2 Basic Operator Specification
+
+# ============================================================
+# Embedding
+# ============================================================
+
+Embedding:
+  category: nn
+  description: "Lookup embedding vectors by indices"
+  inputs:
+    - name: indices
+      dtype: i32
+      description: "Token indices, shape [*]"
+    - name: weight
+      dtype: float
+      description: "Embedding table, shape [vocab_size, embed_dim]"
+  attrs: {}
+  dtype_rule: same_as(weight)
+  constraints:
+    - "indices values in [0, vocab_size)"
+
+# ============================================================
+# Linear Algebra
+# ============================================================
+
+MatMul:
+  category: linalg
+  description: "Batched matrix multiplication: C = A @ B"
+  inputs:
+    - name: lhs
+      dtype: float
+      description: "Left operand, shape [..., M, K]"
+    - name: rhs
+      dtype: float
+      description: "Right operand, shape [..., K, N]"
+  attrs: {}
+  dtype_rule: same_as_inputs
+  constraints:
+    - "lhs.shape[-1] == rhs.shape[-2]"
+
+# ============================================================
+# Elementwise Binary
+# ============================================================
+
+Add:
+  category: elementwise
+  description: "Element-wise addition with broadcasting"
+  inputs:
+    - name: lhs
+      dtype: float
+      description: "Left operand"
+    - name: rhs
+      dtype: float
+      description: "Right operand"
+  attrs: {}
+  dtype_rule: same_as_inputs
+
+Mul:
+  category: elementwise
+  description: "Element-wise multiplication with broadcasting"
+  inputs:
+    - name: lhs
+      dtype: float
+      description: "Left operand"
+    - name: rhs
+      dtype: float
+      description: "Right operand"
+  attrs: {}
+  dtype_rule: same_as_inputs
+
+Div:
+  category: elementwise
+  description: "Element-wise division with broadcasting"
+  inputs:
+    - name: lhs
+      dtype: float
+      description: "Dividend"
+    - name: rhs
+      dtype: float
+      description: "Divisor"
+  attrs: {}
+  dtype_rule: same_as_inputs
+
+Where:
+  category: elementwise
+  description: "Element-wise ternary select: cond ? x : y"
+  inputs:
+    - name: cond
+      dtype: bool
+      description: "Condition tensor"
+    - name: x
+      dtype: float
+      description: "Value when true"
+    - name: y
+      dtype: float
+      description: "Value when false"
+  attrs: {}
+  dtype_rule: same_as(x, y)
+
+# ============================================================
+# Activation
+# ============================================================
+
+GELU:
+  category: activation
+  description: "Gaussian Error Linear Unit"
+  inputs:
+    - name: x
+      dtype: float
+      description: "Input tensor"
+  attrs: {}
+  dtype_rule: same_as_input
+
+Softmax:
+  category: activation
+  description: "Softmax normalization along specified axis"
+  inputs:
+    - name: x
+      dtype: float
+      description: "Input tensor"
+  attrs:
+    axis:
+      type: int
+      required: true
+      description: "Axis to normalize along"
+  dtype_rule: same_as_input
+
+# ============================================================
+# Normalization
+# ============================================================
+
+LayerNorm:
+  category: normalization
+  description: "Layer normalization"
+  inputs:
+    - name: x
+      dtype: float
+      description: "Input tensor"
+    - name: weight
+      dtype: float
+      description: "Scale parameter (gamma)"
+    - name: bias
+      dtype: float
+      description: "Shift parameter (beta)"
+  attrs:
+    axis:
+      type: int
+      required: true
+      description: "Axis to normalize (typically -1)"
+    eps:
+      type: float
+      default: 1e-5
+      description: "Epsilon for numerical stability"
+  dtype_rule: same_as_input
+
+# ============================================================
+# Transform
+# ============================================================
+
+Permute:
+  category: transform
+  description: "Permute tensor dimensions"
+  inputs:
+    - name: x
+      dtype: any
+      description: "Input tensor"
+  attrs:
+    perm:
+      type: "int[]"
+      required: true
+      description: "Permutation of dimensions, e.g. [0, 2, 1, 3]"
+  dtype_rule: same_as_input
+  constraints:
+    - "len(perm) == rank(x)"
+    - "perm is a valid permutation of [0, 1, ..., rank-1]"
+
+Reshape:
+  category: transform
+  description: "Reshape tensor to target shape (static)"
+  inputs:
+    - name: x
+      dtype: any
+      description: "Input tensor"
+  attrs:
+    shape:
+      type: "int[]"
+      required: true
+      description: "Target shape, e.g. [2, 3, 4]"
+  dtype_rule: same_as_input
+  constraints:
+    - "product(shape) == product(x.shape)"
+
+# ============================================================
+# Constant
+# ============================================================
+
+Constant:
+  category: constant
+  description: "Create a constant tensor"
+  inputs: []
+  attrs:
+    value:
+      type: any
+      required: true
+      description: "Scalar value or tensor data"
+  # Note: dtype and shape are determined by the result type, not stored in attrs
+  # Usage: builder.createConstant(Type(DType::F32, Shape({2,2})), 1.0)
+  dtype_rule: from_result_type
