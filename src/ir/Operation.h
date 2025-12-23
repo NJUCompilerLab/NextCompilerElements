@@ -49,8 +49,34 @@ public:
 
     /// Input values (SSA references)
     const std::vector<ValuePtr>& inputs() const { return inputs_; }
-    void addInput(ValuePtr value) { inputs_.push_back(std::move(value)); }
-    void setInputs(std::vector<ValuePtr> inputs) { inputs_ = std::move(inputs); }
+
+    void addInput(ValuePtr value) {
+        value->addUse(this);
+        inputs_.push_back(std::move(value));
+    }
+
+    void setInputs(std::vector<ValuePtr> inputs) {
+        // Remove old uses
+        for (auto& v : inputs_) {
+            v->removeUse(this);
+        }
+        // Add new uses
+        for (auto& v : inputs) {
+            v->addUse(this);
+        }
+        inputs_ = std::move(inputs);
+    }
+
+    /// Replace an input value with a new value
+    void replaceInput(ValuePtr oldValue, ValuePtr newValue) {
+        for (auto& input : inputs_) {
+            if (input == oldValue) {
+                oldValue->removeUse(this);
+                newValue->addUse(this);
+                input = newValue;
+            }
+        }
+    }
 
     // ========== Outputs ==========
 

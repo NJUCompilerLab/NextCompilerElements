@@ -173,10 +173,150 @@ void testEdgeCases() {
     std::cout << "Test 3 passed!\n\n";
 }
 
+void testUseDefChain() {
+    std::cout << "=== Test 4: Use-Def Chain ===\n\n";
+
+    Module module("@usedef_module");
+    Operation* func = module.addFunction("@test");
+    Block* block = func->getRegion(0)->entryBlock();
+
+    auto x = block->addArg("%x", Type(DType::F32, Shape({1, 10})));
+    auto y = block->addArg("%y", Type(DType::F32, Shape({1, 10})));
+
+    IRBuilder builder(block);
+
+    // Create: %add = Add(%x, %y)
+    auto add = builder.createAdd(x, y, Type(DType::F32, Shape({1, 10})));
+
+    // Create: %relu = ReLU(%add)
+    auto relu = builder.createReLU(add);
+
+    // Verify use-def chain for %x
+    assert(x->numUses() == 1);  // Used by Add
+    assert(x->uses()[0]->opType() == "Add");
+
+    // Verify use-def chain for %add
+    assert(add->numUses() == 1);  // Used by ReLU
+    assert(add->uses()[0]->opType() == "ReLU");
+
+    // Test replaceAllUsesWith: replace %x with %y
+    x->replaceAllUsesWith(y);
+
+    // Now Add should use (%y, %y) instead of (%x, %y)
+    const auto& ops = block->ops();
+    assert(ops[0]->inputs()[0] == y);
+    assert(ops[0]->inputs()[1] == y);
+    assert(x->numUses() == 0);  // %x has no uses now
+    assert(y->numUses() == 1);  // %y used by Add (once per Op, not per input slot)
+
+    std::cout << "Use-Def chain test passed!\n";
+    std::cout << "Test 4 passed!\n\n";
+}
+
+void testControlFlow() {
+    std::cout << "=== Test 5: Control Flow (Multi-Block) ===\n\n";
+
+    Module module("@cfg_module");
+    Operation* func = module.addFunction("@if_else");
+    Region* region = func->getRegion(0);
+
+    // Entry block with conditional branch
+    Block* entry = region->entryBlock();
+    auto cond = entry->addArg("%cond", Type(DType::Bool, Shape({})));
+    auto x = entry->addArg("%x", Type(DType::F32, Shape({10})));
+
+    // Add then/else blocks
+    Block* thenBlock = region->addBlock("@then");
+    Block* elseBlock = region->addBlock("@else");
+    Block* mergeBlock = region->addBlock("@merge");
+
+    // Entry: cond_br %cond, @then, @else
+    IRBuilder entryBuilder(entry);
+    entryBuilder.createCondBr(cond, thenBlock, elseBlock);
+
+    // Then block: %t = ReLU(%x), br @merge
+    IRBuilder thenBuilder(thenBlock);
+    auto thenResult = thenBuilder.createReLU(x);
+    thenBuilder.createBr(mergeBlock);
+
+    // Else block: %e = GELU(%x), br @merge
+    IRBuilder elseBuilder(elseBlock);
+    auto elseResult = elseBuilder.createGELU(x);
+    elseBuilder.createBr(mergeBlock);
+
+    // Merge block: return (simplified, no phi for now)
+    IRBuilder mergeBuilder(mergeBlock);
+    mergeBuilder.createReturn({});
+
+    // Print IR
+    std::string textOutput = IRTextPrinter::print(module);
+    std::cout << textOutput << std::endl;
+
+    // Verify structure
+    assert(region->numBlocks() == 4);
+    assert(entry->terminator()->opType() == "CondBr");
+    assert(thenBlock->terminator()->opType() == "Br");
+    assert(elseBlock->terminator()->opType() == "Br");
+    assert(mergeBlock->terminator()->opType() == "Return");
+
+    // Verify CondBr attributes
+    assert(entry->terminator()->hasAttr("then"));
+    assert(entry->terminator()->hasAttr("else"));
+    assert(entry->terminator()->getAttr<std::string>("then") == "@then");
+    assert(entry->terminator()->getAttr<std::string>("else") == "@else");
+
+    std::cout << "Test 5 passed!\n\n";
+}
+
+void testShapeInference() {
+    std::cout << "=== Test 6: Shape Inference ===\n\n";
+
+    Module module("@shape_infer_module");
+    Operation* func = module.addFunction("@test");
+    Block* block = func->getRegion(0)->entryBlock();
+
+    // Test 1: Broadcasting - [1, 10] + [10] -> [1, 10]
+    auto a = block->addArg("%a", Type(DType::F32, Shape({1, 10})));
+    auto b = block->addArg("%b", Type(DType::F32, Shape({10})));
+
+    IRBuilder builder(block);
+    auto addResult = builder.createAdd(a, b);  // No explicit resultType
+
+    assert(addResult->type().shape().rank() == 2);
+    assert(addResult->type().shape().dims() == std::vector<int64_t>({1, 10}));
+    std::cout << "  Broadcasting [1,10] + [10] -> [1,10] ✓\n";
+
+    // Test 2: MatMul - [2, 3, 4] @ [4, 5] -> [2, 3, 5]
+    auto c = block->addArg("%c", Type(DType::F32, Shape({2, 3, 4})));
+    auto d = block->addArg("%d", Type(DType::F32, Shape({4, 5})));
+
+    auto matmulResult = builder.createMatMul(c, d);  // No explicit resultType
+
+    assert(matmulResult->type().shape().rank() == 3);
+    assert(matmulResult->type().shape().dims() == std::vector<int64_t>({2, 3, 5}));
+    std::cout << "  MatMul [2,3,4] @ [4,5] -> [2,3,5] ✓\n";
+
+    // Test 3: Mul broadcasting - [3, 1] * [1, 4] -> [3, 4]
+    auto e = block->addArg("%e", Type(DType::F32, Shape({3, 1})));
+    auto f = block->addArg("%f", Type(DType::F32, Shape({1, 4})));
+
+    auto mulResult = builder.createMul(e, f);
+
+    assert(mulResult->type().shape().dims() == std::vector<int64_t>({3, 4}));
+    std::cout << "  Mul [3,1] * [1,4] -> [3,4] ✓\n";
+
+    builder.createReturn({mulResult});
+
+    std::cout << "\nTest 6 passed!\n\n";
+}
+
 int main() {
     testBasicMLP();
     testOpsWithAttributes();
     testEdgeCases();
+    testUseDefChain();
+    testControlFlow();
+    testShapeInference();
 
     std::cout << "=== All tests passed! ===\n";
     return 0;

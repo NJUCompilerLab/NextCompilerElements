@@ -51,14 +51,72 @@ public:
         return result;
     }
 
+    // ========== Shape Inference Helpers ==========
+
+    /// Infer output type for elementwise binary ops with broadcasting
+    /// Returns the broadcasted type (larger shape wins for each dim)
+    static Type inferBroadcastType(const Type& lhs, const Type& rhs) {
+        const auto& lhsDims = lhs.shape().dims();
+        const auto& rhsDims = rhs.shape().dims();
+
+        // Start from the right, pad shorter with 1s
+        size_t maxRank = std::max(lhsDims.size(), rhsDims.size());
+        std::vector<int64_t> resultDims(maxRank);
+
+        for (size_t i = 0; i < maxRank; ++i) {
+            int64_t lhsDim = (i < lhsDims.size()) ? lhsDims[lhsDims.size() - 1 - i] : 1;
+            int64_t rhsDim = (i < rhsDims.size()) ? rhsDims[rhsDims.size() - 1 - i] : 1;
+            resultDims[maxRank - 1 - i] = std::max(lhsDim, rhsDim);
+        }
+
+        return Type(lhs.dtype(), Shape(resultDims));
+    }
+
+    /// Infer output type for MatMul: [..., M, K] @ [..., K, N] -> [..., M, N]
+    static Type inferMatMulType(const Type& lhs, const Type& rhs) {
+        const auto& lhsDims = lhs.shape().dims();
+        const auto& rhsDims = rhs.shape().dims();
+
+        if (lhsDims.size() < 2 || rhsDims.size() < 2) {
+            throw std::runtime_error("MatMul requires at least 2D tensors");
+        }
+
+        std::vector<int64_t> resultDims;
+        // Batch dimensions (broadcast)
+        size_t lhsBatch = lhsDims.size() - 2;
+        size_t rhsBatch = rhsDims.size() - 2;
+        size_t maxBatch = std::max(lhsBatch, rhsBatch);
+        for (size_t i = 0; i < maxBatch; ++i) {
+            int64_t l = (i < lhsBatch) ? lhsDims[lhsBatch - 1 - i] : 1;
+            int64_t r = (i < rhsBatch) ? rhsDims[rhsBatch - 1 - i] : 1;
+            resultDims.insert(resultDims.begin(), std::max(l, r));
+        }
+
+        // Matrix dimensions: [M, K] @ [K, N] -> [M, N]
+        resultDims.push_back(lhsDims[lhsDims.size() - 2]);  // M
+        resultDims.push_back(rhsDims[rhsDims.size() - 1]);  // N
+
+        return Type(lhs.dtype(), Shape(resultDims));
+    }
+
     // ========== Common Operations ==========
 
-    /// MatMul: C = A @ B
+    /// MatMul: C = A @ B (with automatic shape inference)
+    ValuePtr createMatMul(ValuePtr lhs, ValuePtr rhs) {
+        return createOp("MatMul", {lhs, rhs}, inferMatMulType(lhs->type(), rhs->type()));
+    }
+
+    /// MatMul with explicit result type (backward compatible)
     ValuePtr createMatMul(ValuePtr lhs, ValuePtr rhs, Type resultType) {
         return createOp("MatMul", {lhs, rhs}, resultType);
     }
 
-    /// Add: C = A + B
+    /// Add: C = A + B (with automatic shape inference)
+    ValuePtr createAdd(ValuePtr lhs, ValuePtr rhs) {
+        return createOp("Add", {lhs, rhs}, inferBroadcastType(lhs->type(), rhs->type()));
+    }
+
+    /// Add with explicit result type (backward compatible)
     ValuePtr createAdd(ValuePtr lhs, ValuePtr rhs, Type resultType) {
         return createOp("Add", {lhs, rhs}, resultType);
     }
@@ -108,12 +166,22 @@ public:
         return createOp("Reshape", {input}, resultType, attrs);
     }
 
-    /// Mul: C = A * B
+    /// Mul: C = A * B (with automatic shape inference)
+    ValuePtr createMul(ValuePtr lhs, ValuePtr rhs) {
+        return createOp("Mul", {lhs, rhs}, inferBroadcastType(lhs->type(), rhs->type()));
+    }
+
+    /// Mul with explicit result type (backward compatible)
     ValuePtr createMul(ValuePtr lhs, ValuePtr rhs, Type resultType) {
         return createOp("Mul", {lhs, rhs}, resultType);
     }
 
-    /// Div: C = A / B
+    /// Div: C = A / B (with automatic shape inference)
+    ValuePtr createDiv(ValuePtr lhs, ValuePtr rhs) {
+        return createOp("Div", {lhs, rhs}, inferBroadcastType(lhs->type(), rhs->type()));
+    }
+
+    /// Div with explicit result type (backward compatible)
     ValuePtr createDiv(ValuePtr lhs, ValuePtr rhs, Type resultType) {
         return createOp("Div", {lhs, rhs}, resultType);
     }
@@ -144,6 +212,23 @@ public:
     void createReturn(const std::vector<ValuePtr>& values) {
         auto op = std::make_unique<Operation>("", "Return");
         op->setInputs(values);
+        insertBlock_->setTerminator(std::move(op));
+    }
+
+    /// Unconditional branch: br @dest(args)
+    void createBr(Block* dest, const std::vector<ValuePtr>& args = {}) {
+        auto op = std::make_unique<Operation>("", "Br");
+        op->setAttr("dest", dest->label());
+        op->setInputs(args);
+        insertBlock_->setTerminator(std::move(op));
+    }
+
+    /// Conditional branch: cond_br %cond, @then_block, @else_block
+    void createCondBr(ValuePtr cond, Block* thenBlock, Block* elseBlock) {
+        auto op = std::make_unique<Operation>("", "CondBr");
+        op->setInputs({cond});
+        op->setAttr("then", thenBlock->label());
+        op->setAttr("else", elseBlock->label());
         insertBlock_->setTerminator(std::move(op));
     }
 
