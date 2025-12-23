@@ -18,12 +18,16 @@ Intermediate Representation Specification for a pedagogical deep learning compil
 
 ```
 Operation {
-  name: string           # SSA name, e.g., "%conv1", "@main"
-  op_type: string        # Operator type, e.g., "Conv2D", "Function", "Module"
-  inputs: [string]       # SSA reference, e.g., ["%x", "%weight"]
-  attrs: {string: any}   # Attribute values (schema defined in operator specification)
-  output_types: [Type]   # Output types
-  body?: [Region]        # Optional, nested regions
+  op_type: string              # Operator type, e.g., "Conv2D", "Function", "Module"
+  inputs: [ValuePtr]           # Input values (SSA references)
+  results: [ValuePtr]          # Output values (define SSA names and types)
+  attrs: {string: any}         # Attribute values (schema defined in operator specification)
+  regions: [Region]            # Optional nested regions for control flow
+
+  # Derived properties (computed, not stored):
+  name() -> string             # Symbol ops: "@" + attrs["sym_name"]
+                               # Regular ops: results[0]->name()
+  outputTypes() -> [Type]      # Derived from results[i]->type()
 }
 
 Region {
@@ -51,6 +55,29 @@ Value {
   type: Type
 }
 ```
+
+### Use-Def Chain
+
+Value tracks all its uses for SSA transformations:
+
+```
+Value {
+  name: string               # SSA name
+  type: Type
+  definingOp: Operation?     # Op that defines this value (null for block args)
+  uses: [Operation]          # All ops that use this value
+
+  # Methods:
+  replaceAllUsesWith(newValue)  # Replace all uses with another value
+  hasUses() -> bool             # Check if value has any uses
+  numUses() -> int              # Number of uses
+}
+```
+
+This enables:
+- Dead code elimination (remove ops with no uses)
+- Constant propagation (replace uses with constant)
+- Common subexpression elimination (share identical computations)
 
 **Reserved Extension** (Dynamic Shape):
 ```
@@ -188,6 +215,36 @@ Function (Operation, op_type="Function")
 
 Automatically expands to full form during parsing.
 
+### Text Format (MLIR-style)
+
+For human readability, IR also supports a text format:
+
+```
+module @mlp_module {
+  func @main(%input: f32[1, 784], %weight: f32[784, 256], %bias: f32[256]) -> f32[1, 256] {
+  entry:
+    %v0 = MatMul(%input, %weight) : f32[1, 256]
+    %v1 = Add(%v0, %bias) : f32[1, 256]
+    %v2 = ReLU(%v1) : f32[1, 256]
+    return %v2
+  }
+}
+```
+
+**Syntax:**
+| Element | Format | Example |
+|---------|--------|---------|
+| Module | `module @name { ... }` | `module @gpt2 { ... }` |
+| Function | `func @name(args) -> ret { blocks }` | `func @main(%x: f32[10]) -> f32[10] { ... }` |
+| Block | `label:` or `label(args):` | `entry:`, `loop(%i: i32):` |
+| Operation | `%name = Op<attrs>(inputs) : type` | `%y = MatMul(%a, %b) : f32[2, 3]` |
+| Attrs | `<key=value, ...>` | `<axis=-1, eps=1e-5>` |
+| Type | `dtype[dim, ...]` | `f32[1, 64, 224, 224]` |
+| Scalar | `dtype` (no brackets) | `f32`, `bool` |
+| Return | `return %value` | `return %output` |
+| Branch | `br @label` | `br @loop` |
+| Cond Branch | `cond_br %c, @then, @else` | `cond_br %flag, @true, @false` |
+
 ---
 
 ## Operator Specification (op_spec.yaml)
@@ -203,7 +260,7 @@ OpName:
       required: bool
       default: any           # Optional, default value
   dtype_rule: string         # Type inference rule
-  shape_rule: ...            # Shape inference rule (Phase 2)
+  shape_rule: string         # Shape inference (broadcast/matmul implemented)
   constraints: [string]      # Constraints
 ```
 
@@ -244,11 +301,13 @@ MatMul:
 
 ## Terminator Types
 
-| Terminator | Usage | Format |
-|------------|------|------|
-| `Return` | Function/Region Return | `{"op_type": "Return", "inputs": ["%result"]}` |
-| `Br` | Unconditional Branch | `{"op_type": "Br", "dest": "@block", "args": [...]}` |
-| `CondBr` | Conditional Branch | `{"op_type": "CondBr", "cond": "%c", "then": "@b1", "else": "@b2"}` |
+| Terminator | Attrs | Inputs | JSON Format |
+|------------|-------|--------|-------------|
+| `Return` | - | return values | `{"op_type": "Return", "inputs": ["%result"]}` |
+| `Br` | `dest: string` | branch args | `{"op_type": "Br", "attrs": {"dest": "@block"}, "inputs": ["%arg"]}` |
+| `CondBr` | `then: string, else: string` | condition | `{"op_type": "CondBr", "attrs": {"then": "@b1", "else": "@b2"}, "inputs": ["%cond"]}` |
+
+**Note:** Branch destinations are stored in `attrs`, not as direct fields. Branch arguments (for block args) are passed via `inputs`.
 
 ---
 

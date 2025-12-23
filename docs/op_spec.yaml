@@ -204,12 +204,6 @@ Constant:
       type: any
       required: true
       description: "Scalar value or tensor data"
-    dtype:
-      type: string
-      required: true
-      description: "Data type: f32, f16, i32, i8, bool"
-    shape:
-      type: "int[]"
-      default: []
-      description: "Shape for broadcast, [] means scalar"
-  dtype_rule: specified_by(dtype)
+  # Note: dtype and shape are determined by the result type, not stored in attrs
+  # Usage: builder.createConstant(Type(DType::F32, Shape({2,2})), 1.0)
+  dtype_rule: from_result_type
