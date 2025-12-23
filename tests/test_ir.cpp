@@ -9,6 +9,7 @@
 #include "ir/Module.h"
 #include "ir/IRBuilder.h"
 #include "ir/IRPrinter.h"
+#include "ir/IRTextPrinter.h"
 #include <iostream>
 #include <cassert>
 
@@ -48,7 +49,13 @@ int main() {
 
     // Print to JSON
     std::string jsonOutput = IRPrinter::print(module);
+    std::cout << "=== JSON Format ===\n";
     std::cout << jsonOutput << std::endl;
+
+    // Print to Text (MLIR-style)
+    std::string textOutput = IRTextPrinter::print(module);
+    std::cout << "\n=== Text Format ===\n";
+    std::cout << textOutput << std::endl;
 
     // Basic verification
     assert(module.name() == "@mlp_module");
