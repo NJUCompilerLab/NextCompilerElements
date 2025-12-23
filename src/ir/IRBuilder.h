@@ -36,14 +36,14 @@ public:
         if (!insertBlock_) {
             throw std::runtime_error("IRBuilder: no insertion point set");
         }
-        auto name = genName();
-        auto op = std::make_unique<Operation>(name, opType);
+        auto op = std::make_unique<Operation>(opType);
         op->setInputs(inputs);
-        op->setOutputTypes({resultType});
         for (const auto& [k, v] : attrs) {
             op->setAttr(k, v);
         }
 
+        // Create result value with generated name
+        auto name = genName();
         auto result = std::make_shared<Value>(name, resultType);
         op->addResult(result);
 
@@ -193,13 +193,12 @@ public:
 
     /// Constant
     ValuePtr createConstant(Type type, AttrValue value) {
-        auto name = genName("const");
-        auto op = std::make_unique<Operation>(name, "Constant");
+        auto op = std::make_unique<Operation>("Constant");
         op->setAttr("value", std::move(value));
         op->setAttr("dtype", dtypeToString(type.dtype()));
         op->setAttr("shape", type.shape().dims());
-        op->setOutputTypes({type});
 
+        auto name = genName("const");
         auto result = std::make_shared<Value>(name, type);
         op->addResult(result);
 
@@ -210,14 +209,14 @@ public:
     // ========== Terminator ==========
 
     void createReturn(const std::vector<ValuePtr>& values) {
-        auto op = std::make_unique<Operation>("", "Return");
+        auto op = std::make_unique<Operation>("Return");
         op->setInputs(values);
         insertBlock_->setTerminator(std::move(op));
     }
 
     /// Unconditional branch: br @dest(args)
     void createBr(Block* dest, const std::vector<ValuePtr>& args = {}) {
-        auto op = std::make_unique<Operation>("", "Br");
+        auto op = std::make_unique<Operation>("Br");
         op->setAttr("dest", dest->label());
         op->setInputs(args);
         insertBlock_->setTerminator(std::move(op));
@@ -225,7 +224,7 @@ public:
 
     /// Conditional branch: cond_br %cond, @then_block, @else_block
     void createCondBr(ValuePtr cond, Block* thenBlock, Block* elseBlock) {
-        auto op = std::make_unique<Operation>("", "CondBr");
+        auto op = std::make_unique<Operation>("CondBr");
         op->setInputs({cond});
         op->setAttr("then", thenBlock->label());
         op->setAttr("else", elseBlock->label());

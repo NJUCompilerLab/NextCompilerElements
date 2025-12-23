@@ -31,19 +31,28 @@ using Attributes = std::unordered_map<std::string, AttrValue>;
 /// Everything is an Operation: Module, Function, Conv2D, ReLU, etc.
 class Operation {
 public:
-    Operation(std::string name, std::string opType)
-        : name_(std::move(name)), opType_(std::move(opType)), parentBlock_(nullptr) {}
+    explicit Operation(std::string opType)
+        : opType_(std::move(opType)), parentBlock_(nullptr) {}
 
     // Destructor must be defined in .cpp where Region is complete
     ~Operation();
 
-    /// SSA name (e.g., "%conv1", "@main")
-    const std::string& name() const { return name_; }
-    void setName(std::string name) { name_ = std::move(name); }
+    /// Get name: for symbol ops (Function/Module) returns sym_name attr,
+    /// for regular ops returns first result's name
+    std::string name() const {
+        // Symbol operations store name in sym_name attribute
+        if (hasAttr("sym_name")) {
+            return "@" + getAttr<std::string>("sym_name");
+        }
+        // Regular ops: use first result's name
+        if (!results_.empty()) {
+            return results_[0]->name();
+        }
+        return "";
+    }
 
     /// Operator type (e.g., "Conv2D", "Function", "Module")
     const std::string& opType() const { return opType_; }
-    void setOpType(std::string opType) { opType_ = std::move(opType); }
 
     // ========== Inputs ==========
 
@@ -80,10 +89,15 @@ public:
 
     // ========== Outputs ==========
 
-    /// Output types
-    const std::vector<Type>& outputTypes() const { return outputTypes_; }
-    void addOutputType(Type type) { outputTypes_.push_back(std::move(type)); }
-    void setOutputTypes(std::vector<Type> types) { outputTypes_ = std::move(types); }
+    /// Output types (derived from results)
+    std::vector<Type> outputTypes() const {
+        std::vector<Type> types;
+        types.reserve(results_.size());
+        for (const auto& r : results_) {
+            types.push_back(r->type());
+        }
+        return types;
+    }
 
     /// Result values (created lazily or by builder)
     const std::vector<ValuePtr>& results() const { return results_; }
@@ -150,10 +164,8 @@ public:
     }
 
 private:
-    std::string name_;
     std::string opType_;
     std::vector<ValuePtr> inputs_;
-    std::vector<Type> outputTypes_;
     std::vector<ValuePtr> results_;
     Attributes attrs_;
     std::vector<std::unique_ptr<Region>> regions_;

@@ -22,7 +22,7 @@ void testBasicMLP() {
     Module module("@mlp_module");
 
     // Add main function
-    Operation* mainFunc = module.addFunction("@main");
+    Operation* mainFunc = module.addFunction("main");
     Block* funcBlock = mainFunc->getRegion(0)->entryBlock();
 
     // Add function arguments (inputs)
@@ -71,7 +71,7 @@ void testOpsWithAttributes() {
     std::cout << "=== Test 2: Ops with Attributes ===\n\n";
 
     Module module("@attention_module");
-    Operation* func = module.addFunction("@attention");
+    Operation* func = module.addFunction("attention");
     Block* block = func->getRegion(0)->entryBlock();
 
     // Add inputs
@@ -120,7 +120,7 @@ void testEdgeCases() {
     // Test 3a: Empty function (no ops, no args)
     {
         Module module("@empty_module");
-        Operation* func = module.addFunction("@empty_func");
+        Operation* func = module.addFunction("empty_func");
         Block* block = func->getRegion(0)->entryBlock();
 
         // Just add a return with no values
@@ -137,7 +137,7 @@ void testEdgeCases() {
     // Test 3b: Scalar type (empty shape)
     {
         Module module("@scalar_module");
-        Operation* func = module.addFunction("@scalar_func");
+        Operation* func = module.addFunction("scalar_func");
         Block* block = func->getRegion(0)->entryBlock();
 
         auto scalar = block->addArg("%scalar", Type(DType::F32, Shape({})));
@@ -155,7 +155,7 @@ void testEdgeCases() {
     // Test 3c: Constant operation
     {
         Module module("@const_module");
-        Operation* func = module.addFunction("@const_func");
+        Operation* func = module.addFunction("const_func");
         Block* block = func->getRegion(0)->entryBlock();
 
         IRBuilder builder(block);
@@ -177,7 +177,7 @@ void testUseDefChain() {
     std::cout << "=== Test 4: Use-Def Chain ===\n\n";
 
     Module module("@usedef_module");
-    Operation* func = module.addFunction("@test");
+    Operation* func = module.addFunction("test");
     Block* block = func->getRegion(0)->entryBlock();
 
     auto x = block->addArg("%x", Type(DType::F32, Shape({1, 10})));
@@ -217,7 +217,7 @@ void testControlFlow() {
     std::cout << "=== Test 5: Control Flow (Multi-Block) ===\n\n";
 
     Module module("@cfg_module");
-    Operation* func = module.addFunction("@if_else");
+    Operation* func = module.addFunction("if_else");
     Region* region = func->getRegion(0);
 
     // Entry block with conditional branch
@@ -272,7 +272,7 @@ void testShapeInference() {
     std::cout << "=== Test 6: Shape Inference ===\n\n";
 
     Module module("@shape_infer_module");
-    Operation* func = module.addFunction("@test");
+    Operation* func = module.addFunction("test");
     Block* block = func->getRegion(0)->entryBlock();
 
     // Test 1: Broadcasting - [1, 10] + [10] -> [1, 10]
